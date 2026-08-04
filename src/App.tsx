@@ -15,8 +15,6 @@ import {
 } from "./api";
 import { Ball, Bins, Pegs, type BallPhase } from "./PegBoard";
 import { playTick, playWin, playLose, setMuted, isMuted } from "./sound";
-import { sendReaction, listReactions } from "./reactions/api";
-import { REACTION_PRESETS, type Reaction, type ReactionCode } from "./reactions/types";
 import "./plinko.css";
 
 // How long before a board's real end_time the ball starts visibly gliding
@@ -27,15 +25,13 @@ const SETTLE_WINDOW_MS = 5_000;
 // auto-advances to the next scheduled one.
 const REVEAL_HOLD_MS = 3_000;
 
-// Plinko's own id in blackbird's /api/v1/games catalog -- reactions are
-// scoped by this exact id, same as a real launch would pass.
-const PLINKO_GAME_ID = 2;
-// Mirrors the backend's reaction.Cooldown -- used purely to grey out the
-// buttons client-side between taps so the 429 case is rare, not to replace
-// the server-side check.
-const REACTION_COOLDOWN_MS = 3_000;
-
 const STAKE_CHIPS = [10, 20, 100, 500];
+// Client-side-only convenience bounds for the MIN/MAX quick-set buttons --
+// there's no per-operator stake-limits endpoint for this app yet (unlike
+// blackbird-web/mines, which read theirs from client_configs), so these are
+// just sane UI defaults, not a real enforced limit from the backend.
+const MIN_STAKE = STAKE_CHIPS[0];
+const MAX_STAKE = 5000;
 const AUTOPLAY_CHOICES = [5, 10, 25];
 const PROFILE_TAG_STORAGE_KEY = "plinko_profile_tag";
 const LAST_ZONE_STORAGE_KEY = "plinko_last_zone";
@@ -245,20 +241,6 @@ function Game({ profileTag }: { profileTag: string }) {
     refetchInterval: 5000,
   });
 
-  const reactionsQuery = useQuery({
-    queryKey: ["plinko-reactions"],
-    queryFn: () => listReactions(PLINKO_GAME_ID, 20),
-    refetchInterval: 4000,
-  });
-
-  const [lastReactionSentAt, setLastReactionSentAt] = useState(0);
-  const sendReactionMutation = useMutation({
-    mutationFn: sendReaction,
-    onSuccess: () => {
-      setLastReactionSentAt(Date.now());
-      queryClient.invalidateQueries({ queryKey: ["plinko-reactions"] });
-    },
-  });
 
   // Bootstrap: adopt whatever /round first resolves to. Also recovers if
   // the active board ever fails to load (e.g. purged) by dropping back to
@@ -522,30 +504,66 @@ function Game({ profileTag }: { profileTag: string }) {
 
       {phase === "picking" && (
         <div className="pk-stake-bar">
-          <div className="pk-chips">
-            {STAKE_CHIPS.map((v) => (
-              <button
-                key={v}
-                type="button"
-                className={`pk-chip${stake === v ? " pk-active" : ""}`}
-                onClick={() => setStake(v)}
-              >
-                {currency} {v}
+          <div className="pk-stake-section">
+            <label className="pk-stake-label" htmlFor="pk-stake-input">
+              Bet amount
+            </label>
+            <div className="pk-stake-row">
+              <button type="button" className="pk-minmax-btn" onClick={() => setStake(MIN_STAKE)}>
+                MIN
               </button>
-            ))}
+              <div className="pk-stake-display">
+                <span className="pk-stake-currency">{currency}</span>
+                <input
+                  id="pk-stake-input"
+                  className="pk-stake-input-field"
+                  type="number"
+                  min={MIN_STAKE}
+                  max={MAX_STAKE}
+                  value={stake}
+                  onChange={(e) => setStake(Math.min(MAX_STAKE, Math.max(0, Number(e.target.value))))}
+                  onBlur={() => setStake((s) => Math.max(MIN_STAKE, s))}
+                />
+              </div>
+              <button type="button" className="pk-minmax-btn" onClick={() => setStake(MAX_STAKE)}>
+                MAX
+              </button>
+            </div>
+            <div className="pk-chips">
+              {STAKE_CHIPS.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`pk-chip${stake === v ? " pk-active" : ""}`}
+                  onClick={() => setStake(v)}
+                >
+                  {currency} {v}
+                </button>
+              ))}
+            </div>
           </div>
+
           <button
             type="button"
             className="pk-drop-button"
-            disabled={selectedIndex === null || placeBetMutation.isPending}
+            disabled={selectedIndex === null || stake < MIN_STAKE || placeBetMutation.isPending}
             onClick={() => {
               if (selectedIndex === null) return;
               placeBetMutation.mutate({ round_id: round.id, zone: ZONE_ORDER[selectedIndex], stake, profile_tag: profileTag });
             }}
           >
-            {selectedIndex !== null
-              ? `Drop - Slot ${selectedIndex + 1} - win up to ${currency} ${potentialWin.toFixed(2)}`
-              : "Pick a slot"}
+            {placeBetMutation.isPending ? (
+              "Placing..."
+            ) : selectedIndex !== null ? (
+              <>
+                Drop &middot; Slot {selectedIndex + 1}
+                <span className="pk-drop-win">
+                  win up to {currency} {potentialWin.toFixed(2)}
+                </span>
+              </>
+            ) : (
+              "Pick a slot to drop"
+            )}
           </button>
           {placeBetMutation.isError && <p className="pk-error">{(placeBetMutation.error as Error).message}</p>}
 
@@ -589,16 +607,6 @@ function Game({ profileTag }: { profileTag: string }) {
       <MyBetsHistory
         bets={(betsQuery.data?.data ?? []).filter((b) => phase === "reveal" || b.round_id !== round.id)}
         currency={currency}
-      />
-
-      <ReactionBar
-        reactions={reactionsQuery.data ?? []}
-        cooldownRemainingMs={Math.max(0, REACTION_COOLDOWN_MS - (now - lastReactionSentAt))}
-        sending={sendReactionMutation.isPending}
-        error={sendReactionMutation.isError ? (sendReactionMutation.error as Error).message : null}
-        onSend={(code) =>
-          sendReactionMutation.mutate({ gameId: PLINKO_GAME_ID, playerId: profileTag, code, roundRef: String(round.id) })
-        }
       />
     </div>
   );
@@ -658,56 +666,6 @@ function MyBetsHistory({ bets, currency }: { bets: PlinkoBet[]; currency: string
           );
         })}
       </div>
-    </div>
-  );
-}
-
-// Preset-only reactions -- tap a fixed phrase, see everyone else's recent
-// taps. Deliberately no free-text input anywhere here: this is the
-// low-moderation-risk alternative to chat, reusable across every game via
-// game_id (see ../reactions). Buttons grey out for REACTION_COOLDOWN_MS
-// after a send so the server-side 429 (domain.ErrTooSoon) is rarely hit,
-// not relied on as the only guard.
-function ReactionBar({
-  reactions,
-  cooldownRemainingMs,
-  sending,
-  error,
-  onSend,
-}: {
-  reactions: Reaction[];
-  cooldownRemainingMs: number;
-  sending: boolean;
-  error: string | null;
-  onSend: (code: ReactionCode) => void;
-}) {
-  const onCooldown = cooldownRemainingMs > 0;
-  return (
-    <div className="pk-history">
-      <p className="pk-slots-label">Reactions</p>
-      <div className="pk-reaction-buttons">
-        {REACTION_PRESETS.map((p) => (
-          <button
-            key={p.code}
-            type="button"
-            className="pk-chip"
-            disabled={sending || onCooldown}
-            onClick={() => onSend(p.code)}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-      {error && <p className="pk-error">{error}</p>}
-      {reactions.length > 0 && (
-        <div className="pk-reaction-feed">
-          {reactions.map((r) => (
-            <span key={r.id} className="pk-reaction-chip">
-              {r.player_id}: {REACTION_PRESETS.find((p) => p.code === r.code)?.label ?? r.code}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
