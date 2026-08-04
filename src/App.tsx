@@ -477,7 +477,6 @@ function Game({ profileTag }: { profileTag: string }) {
 
       <div className="pk-board">
         <Pegs />
-        <Ball phase={ballPhase} landingSlot={phase === "settling" || phase === "reveal" ? winningIndex : null} slotCount={odds.length} />
         <Bins
           odds={odds}
           labels={labels}
@@ -487,6 +486,7 @@ function Game({ profileTag }: { profileTag: string }) {
           disabled={phase !== "picking"}
           onSelect={setSelectedIndex}
         />
+        <Ball phase={ballPhase} landingSlot={phase === "settling" || phase === "reveal" ? winningIndex : null} slotCount={odds.length} />
       </div>
 
       {phase === "reveal" && (

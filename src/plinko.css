@@ -230,79 +230,47 @@ input:focus-visible {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-/* ---------- ball ---------- */
+/* ---------- ball ----------
+   The track now overlays the board's full height (pegs + bins) instead of
+   sitting in its own thin flow row -- top/left are both driven from
+   PegBoard.tsx's Ball component (a JS waypoint sequence during "settling"),
+   this file only supplies the per-step transition easing and the idle/
+   dropping poised-at-top bob. */
 .pk-ball-track {
-  position: relative;
-  height: 30px;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 .pk-ball {
   position: absolute;
-  top: 4px;
   width: 16px;
   height: 16px;
+  margin-top: -8px;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #fff3cf, var(--pk-gold) 55%, #a8690a);
   box-shadow: 0 0 10px rgba(255, 176, 32, 0.6), 0 3px 3px rgba(0, 0, 0, 0.45);
   transform: translateX(-50%);
-  transition: left 0.6s cubic-bezier(0.34, 1.4, 0.4, 1);
+  transition-property: top, left;
+  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .pk-ball-dropping .pk-ball {
-    animation: pk-bounce 1.1s ease-in-out infinite;
-  }
+  .pk-ball-dropping .pk-ball,
   .pk-ball-idle .pk-ball {
-    animation: pk-idle 2.4s ease-in-out infinite;
+    animation: pk-poised-bob 1.6s ease-in-out infinite;
   }
-}
-/* The real winner is already known well before this point (see
-   Service.resolveFinalScore) -- "settling" is purely a display pace, a
-   slow glide toward the true slot instead of the instant 0.6s snap
-   ".pk-ball"'s base transition uses once fully "landed". */
-.pk-ball-settling .pk-ball {
-  animation: none;
-  transition: left 5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .pk-ball-landed .pk-ball {
   animation: none;
 }
-/* Sweeps across most of the board width rather than wobbling around dead
-   center -- with an even slot count (6), dead center sits exactly on the
-   boundary between slot 3 and slot 4, which reads as "stuck between two
-   odds" rather than "still deciding". */
-@keyframes pk-bounce {
-  0% {
-    left: 14%;
-    transform: translateX(-50%) translateY(0);
-  }
-  25% {
-    left: 38%;
-    transform: translateX(-50%) translateY(8px);
-  }
-  50% {
-    left: 62%;
-    transform: translateX(-50%) translateY(0);
-  }
-  75% {
-    left: 86%;
-    transform: translateX(-50%) translateY(8px);
-  }
+/* Small bob in place while poised at the top, waiting to drop -- reads as
+   "about to fall", not aimless side-to-side wandering. */
+@keyframes pk-poised-bob {
+  0%,
   100% {
-    left: 14%;
-    transform: translateX(-50%) translateY(0);
-  }
-}
-@keyframes pk-idle {
-  0% {
-    left: 25%;
     transform: translateX(-50%) translateY(0);
   }
   50% {
-    left: 75%;
-    transform: translateX(-50%) translateY(3px);
-  }
-  100% {
-    left: 25%;
-    transform: translateX(-50%) translateY(0);
+    transform: translateX(-50%) translateY(4px);
   }
 }
 
